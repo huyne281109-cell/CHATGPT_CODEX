@@ -1,4 +1,6 @@
 from flask import Flask, request, send_file
+import asyncio
+import edge_tts
 import subprocess
 import os
 import uuid
@@ -9,6 +11,10 @@ app = Flask(__name__)
 @app.route('/')
 def home():
     return "✅ Server Edge-TTS cho Coconut dang hoat dong!"
+
+async def generate_edge_tts(text, voice, output_path):
+    communicate = edge_tts.Communicate(text, voice)
+    await communicate.save(output_path)
 
 @app.route('/tts', methods=['GET', 'POST'])
 def tts():
@@ -25,7 +31,10 @@ def tts():
     wav_file = f"/tmp/{unique_id}.wav"
     
     try:
-        subprocess.run(['edge-tts', '--voice', voice, '--text', text, '--write-media', mp3_file], check=True)
+        # Gọi edge-tts trực tiếp qua SDK Python
+        asyncio.run(generate_edge_tts(text, voice, mp3_file))
+        
+        # Convert MP3 sang WAV pcm_s16le 24kHz bằng ffmpeg cho ESP32
         subprocess.run(['ffmpeg', '-y', '-i', mp3_file, '-ar', '24000', '-ac', '1', '-c:a', 'pcm_s16le', wav_file], check=True)
         
         with open(wav_file, 'rb') as f:
@@ -34,7 +43,7 @@ def tts():
         return send_file(io.BytesIO(wav_data), mimetype='audio/wav')
         
     except Exception as e:
-        return str(e), 500
+        return f"TTS Error: {str(e)}", 500
         
     finally:
         if os.path.exists(mp3_file): os.remove(mp3_file)
