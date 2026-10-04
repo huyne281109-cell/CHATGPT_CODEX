@@ -6,14 +6,13 @@ import io
 
 app = Flask(__name__)
 
-# Thêm trang chủ để kiểm tra server có sống không (hết bị lỗi 404)
 @app.route('/')
 def home():
-    return "✅ Server Edge-TTS cho Coconut đang hoạt động hoàn hảo! Hãy gọi vào đường dẫn /tts"
+    return "✅ Server Edge-TTS cho Coconut dang hoat dong!"
 
 @app.route('/tts', methods=['GET', 'POST'])
 def tts():
-    # Hỗ trợ POST (cho ESP32 gửi JSON) và GET (để test trên trình duyệt)
+    # Hỗ trợ nhận JSON qua POST từ ESP32
     if request.method == 'POST':
         data = request.get_json(silent=True) or {}
         text = data.get('text', 'Xin chào')
