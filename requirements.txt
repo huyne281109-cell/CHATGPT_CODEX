@@ -1,15 +1,3 @@
-# Dùng hệ điều hành Linux mini có sẵn Python
-FROM python:3.10-slim
-
-# Cài ffmpeg
-RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY server.py .
-
-EXPOSE 10000
-
-# timeout 120s: Edge-TTS + ffmpeg có thể mất > 30s (mặc định của gunicorn) khi server Render vừa "thức dậy"
-CMD ["gunicorn", "-b", "0.0.0.0:10000", "--workers", "2", "--timeout", "120", "server:app"]
+Flask==3.0.0
+edge-tts==6.1.12
+gunicorn==21.2.0
