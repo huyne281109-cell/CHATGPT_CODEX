@@ -1,73 +1,70 @@
-from flask import Flask, request, send_file
-import asyncio
-import edge_tts
+from flask import Flask, request, Response
 import subprocess
 import os
 import uuid
-import io
 
 app = Flask(__name__)
 
-@app.route('/')
-def home():
-    return "✅ Server Edge-TTS cho Coconut dang hoat dong!"
+SAMPLE_RATE = 24000          # PHẢI khớp EDGE_TTS_SAMPLE_RATE trong config.h
+DEFAULT_VOICE = 'vi-VN-HoaiMyNeural'
 
-async def generate_edge_tts(text, voice, output_path):
-    # Khởi tạo đối tượng Communicate với giọng đọc Edge-TTS
-    communicate = edge_tts.Communicate(text, voice)
-    await communicate.save(output_path)
 
 @app.route('/tts', methods=['GET', 'POST'])
 def tts():
-    # 1. Tiếp nhận tham số từ POST (JSON) hoặc GET (Query string)
+    # ESP32 gửi POST JSON {"text": "...", "voice": "..."}; vẫn hỗ trợ GET để test trên trình duyệt
     if request.method == 'POST':
         data = request.get_json(silent=True) or {}
-        text = data.get('text', 'Xin chào, tôi là Coconut!')
-        voice = data.get('voice', 'vi-VN-HoaiMyNeural')
+        text = data.get('text', '')
+        voice = data.get('voice', DEFAULT_VOICE)
     else:
-        text = request.args.get('text', 'Xin chào, tôi là Coconut!')
-        voice = request.args.get('voice', 'vi-VN-HoaiMyNeural')
-    
-    # Tạo tên file tạm ngẫu nhiên bằng UUID để tránh xung đột giữa các request
-    unique_id = str(uuid.uuid4())
-    mp3_file = f"/tmp/{unique_id}.mp3"
-    wav_file = f"/tmp/{unique_id}.wav"
-    
+        text = request.args.get('text', 'Xin chào')
+        voice = request.args.get('voice', DEFAULT_VOICE)
+
+    text = (text or '').strip()
+    if not text:
+        return 'text rong', 400
+
+    mp3_file = f"/tmp/{uuid.uuid4()}.mp3"
+
     try:
-        # 2. Tạo file MP3 từ Edge-TTS qua SDK Python
-        asyncio.run(generate_edge_tts(text, voice, mp3_file))
-        
-        # 3. Convert MP3 sang WAV PCM 16-bit 16kHz Mono cho ESP32
-        # (16kHz giúp hạ dung lượng truyền tải, tránh giật/rè do nghẽn buffer I2S)
-        subprocess.run([
-            'ffmpeg', '-y',
-            '-i', mp3_file,
-            '-ar', '16000',
-            '-ac', '1',
-            '-c:a', 'pcm_s16le',
-            wav_file
-        ], check=True)
-        
-        # 4. Đọc dữ liệu file WAV vào RAM để trả về response
-        with open(wav_file, 'rb') as f:
-            wav_data = f.read()
-            
-        return send_file(
-            io.BytesIO(wav_data),
-            mimetype='audio/wav',
-            as_attachment=False,
-            download_name='speech.wav'
+        # 1) Edge-TTS -> MP3  (dùng --text=... để câu bắt đầu bằng dấu "-" không bị hiểu nhầm là tham số)
+        subprocess.run(
+            ['edge-tts', '--voice', voice, f'--text={text}', '--write-media', mp3_file],
+            check=True, timeout=60, capture_output=True
         )
-        
+
+        # 2) FFmpeg -> PCM THÔ s16le, mono, 24 kHz, ghi ra stdout.
+        #    Không có header WAV nên ESP32 không phải "đoán" độ dài header (nguyên nhân tiếng nổ/rè đầu câu).
+        #    volume=0.8 chừa headroom để loa/amp không bị clip.
+        ff = subprocess.run(
+            ['ffmpeg', '-y', '-loglevel', 'error', '-i', mp3_file,
+             '-ar', str(SAMPLE_RATE), '-ac', '1', '-af', 'volume=0.8',
+             '-f', 's16le', 'pipe:1'],
+            check=True, timeout=60, capture_output=True
+        )
+        pcm = ff.stdout
+        if len(pcm) % 2:             # đảm bảo số byte chẵn (mẫu 16-bit)
+            pcm = pcm[:-1]
+
+        return Response(
+            pcm,
+            mimetype='application/octet-stream',
+            headers={'X-Sample-Rate': str(SAMPLE_RATE), 'Content-Length': str(len(pcm))}
+        )
+
+    except subprocess.CalledProcessError as e:
+        return (e.stderr or b'loi ffmpeg/edge-tts'), 500
     except Exception as e:
-        return f"TTS Error: {str(e)}", 500
-        
+        return str(e), 500
     finally:
-        # 5. Đảm bảo xóa các file tạm sau khi đã xử lý xong
         if os.path.exists(mp3_file):
             os.remove(mp3_file)
-        if os.path.exists(wav_file):
-            os.remove(wav_file)
+
+
+@app.route('/', methods=['GET'])
+def health():
+    return 'ok'
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
