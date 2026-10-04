@@ -13,6 +13,7 @@ def home():
     return "✅ Server Edge-TTS cho Coconut dang hoat dong!"
 
 async def generate_edge_tts(text, voice, output_path):
+    # Khởi tạo đối tượng Communicate với giọng đọc
     communicate = edge_tts.Communicate(text, voice)
     await communicate.save(output_path)
 
@@ -31,11 +32,14 @@ def tts():
     wav_file = f"/tmp/{unique_id}.wav"
     
     try:
-        # Gọi edge-tts trực tiếp qua SDK Python
+        # Chạy Edge TTS qua Python SDK
         asyncio.run(generate_edge_tts(text, voice, mp3_file))
         
-        # Convert MP3 sang WAV pcm_s16le 24kHz bằng ffmpeg cho ESP32
-        subprocess.run(['ffmpeg', '-y', '-i', mp3_file, '-ar', '24000', '-ac', '1', '-c:a', 'pcm_s16le', wav_file], check=True)
+        # Chuyển đổi MP3 sang WAV PCM 16-bit 24kHz Mono cho ESP32
+        subprocess.run(
+            ['ffmpeg', '-y', '-i', mp3_file, '-ar', '24000', '-ac', '1', '-c:a', 'pcm_s16le', wav_file],
+            check=True
+        )
         
         with open(wav_file, 'rb') as f:
             wav_data = f.read()
