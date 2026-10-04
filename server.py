@@ -12,7 +12,6 @@ def home():
 
 @app.route('/tts', methods=['GET', 'POST'])
 def tts():
-    # Hỗ trợ nhận JSON qua POST từ ESP32
     if request.method == 'POST':
         data = request.get_json(silent=True) or {}
         text = data.get('text', 'Xin chào')
